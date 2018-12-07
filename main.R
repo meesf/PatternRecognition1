@@ -18,7 +18,7 @@ summary(mnist[,1])
 # 
 # The corner pixels often are 0 (mean is very low), therefore they dont really influence the classification process (superfluous).
 # 
-# > summary(myData[,1])
+# > summary(mnist[,1])
 # 0    1    2    3    4    5    6    7    8    9 
 # 4132 4684 4177 4351 4072 3795 4137 4401 4063 4188
 # 
