@@ -3,16 +3,20 @@
 
 library(MASS)
 
+install.packages("nnet")
+library(nnet)
 
 # Read data ---------------------------------------------------------------
 
 mnist <- read.csv(file="mnist.csv")
 mnist[,1] <- as.factor(mnist[,1])
+y <- mnist[,1]
+x <- mnist[,2:785]
 summary(mnist[,1])
 
 # findings:
 # 
-# The corner pixels often are 0 (mean is very low), therefore they dont really influence the classification process.
+# The corner pixels often are 0 (mean is very low), therefore they dont really influence the classification process (superfluous).
 # 
 # > summary(myData[,1])
 # 0    1    2    3    4    5    6    7    8    9 
@@ -24,9 +28,9 @@ summary(mnist[,1])
 # Ink ---------------------------------------------------------------------
 
 # Get ink amount per datapoint
-ink <- apply(mnist[,2:785], 1, function(x) sum(x))
-mean <- tapply(ink, mnist[,1], mean)
-sd <- tapply(ink, mnist[,1], sd)
+ink <- data.frame("label"=y, "ink"=apply(mnist[,2:785], 1, function(z) sum(z)))
+mean <- tapply(ink[,2], ink[,1], mean)
+sd <- tapply(ink[,2], ink[,1], sd)
 mean  # prints the mean values
 sd    # prints the standard deviations
 
@@ -51,4 +55,13 @@ legend("topright", inset=.05, title="Digits",legend=labels, col=colors,lty=c(1,1
 # - 0
 
 # Train multinomial model
-inkScaled <- scale(ink)
+ink.scaled <- data.frame("label"=ink[,1], "ink"=scale(ink[,2]))
+mm <- multinom(label ~ ink, data = ink.scaled)
+
+# TODO: predict digits using the multinom model...
+
+
+# Ink per row ---------------------------------------------------------------------
+# Idea for new feature: take the average for every row (or column) of pixels.
+
+
