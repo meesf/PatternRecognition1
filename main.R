@@ -2,9 +2,17 @@
 # Libraries ---------------------------------------------------------------
 
 library(MASS)
+library(class)
 
 install.packages("nnet")
 library(nnet)
+
+install.packages("glmnet")
+library(glmnet)
+install.packages("tidyverse")
+library(tidyverse)
+install.packages("caret")
+library(caret)
 
 # Read data ---------------------------------------------------------------
 
@@ -63,8 +71,7 @@ normalDistPlot(features, 0, 60000, 0.0001)
 # - 0
 
 # Train multinomial model
-ink.scaled <- scale(ink)
-features <- data.frame("label"=y, "ink"=ink.scaled)
+features <- data.frame("label"=y, "ink"=scale(ink))
 # Why do we scale the data? --> this centers the data around 0, which makes the training process easier. The derivative of the cost function
 # will always be in the same proportions. It will normalize the effect of the different features. For example if one feature, on average, 
 # has high values and the other low values, it could be possible that the higher values have more impact on the classification process. 
@@ -141,17 +148,47 @@ normalDistPlot(features, 0, 28, 1.2)
 
 # All features ---------------------------------------------------------------------
 # Here we can analyse all our features. First load the features that you want to test as a data.frame, then pass that to the test function.
-test <- function(features) {
-  multinom <- multinom(label ~ ., data = features, trace=FALSE)
-  multinom.pred <- predict(multinom, features)
-  confmat <- table(features[,1], multinom.pred)
-  accuracy <- sum(diag(confmat))/sum(confmat)
-  print(paste("multinom accuracy:", accuracy))
+# getFoldIndices <- function(y, k = 10) {
+#   require(caret)
+#   return(createFolds(y, k = k, list = TRUE, returnTrain = FALSE))
+# }
+
+getLambda <- function(x, y, alpha = 1, k = 5) {
+  return(cv.glmnet(x, y, alpha = alpha, family = "multinomial", nfolds=k, type.measure = "class", grouped = FALSE))
+}
+
+test <- function(features, trainSize = 0.2, folds = 5, k = 5) {
+  # Prepare data
+  set.seed(123)
+  training.samples <- features$label %>% createDataPartition(p = trainSize, list = FALSE)
+  train.data <- features[training.samples,]
+  test.data <- features[-training.samples,]
+  train.x <- model.matrix(label~., train.data)[,-1]
+  train.y <- train.data$label
+  test.x <- model.matrix(label ~., test.data)[,-1]
+  test.y <- test.data$label
+  
+  # Train multinomial logit model
+  cv.fit <- getLambda(train.x, train.y, k = folds)
+  multinom.model <- glmnet(train.x, train.y, alpha = 1, family="multinomial")
+  # Test the model
+  multinom.pred <- predict(multinom.model, test.x, s=cv.fit$lambda.min, type = "class")
+  
+  
+  # Predict using knn
+  knn.pred <- knn(train.x, test.x, train.y, k = k)
+  
+  # print accuracies
+  print("Accuracy per model:")
+  print(paste("multinom:", mean(multinom.pred == test.y)))
+  print(paste("knn:", mean(knn.pred == test.y)))
 }
 
 
-allFeatures <- data.frame("label"=y, "ink"=ink.scaled, "width"=scale(width), "height"=scale(height), "numCols"=scale(numCols), "numRows"= scale(numRows))
+allFeatures <- data.frame("label"=y, "ink"=scale(ink), "width"=scale(width), "height"=scale(height), "numCols"=scale(numCols), "numRows"= scale(numRows))
 
 
-features <- data.frame("label"=y, "ink"=ink.scaled, "width"=scale(width))
-test(features)
+features <- data.frame("label"=y, "ink"=scale(ink), "width"=scale(width))
+test(features, k = 3)
+
+
