@@ -1,17 +1,18 @@
 
 # Libraries ---------------------------------------------------------------
 
+install.packages("e1071")
+install.packages("nnet")
+install.packages("glmnet")
+install.packages("tidyverse")
+install.packages("caret")
+
 library(MASS)
 library(class)
-
-install.packages("nnet")
+library(e1071)
 library(nnet)
-
-install.packages("glmnet")
 library(glmnet)
-install.packages("tidyverse")
 library(tidyverse)
-install.packages("caret")
 library(caret)
 
 # Read data ---------------------------------------------------------------
@@ -164,12 +165,14 @@ halfSize <- function(x) {
 reducedImages <- t(apply(mnist[,2:785], 1, function(x) halfSize(x)))
 
 # Remove superfluous ---------------------------------------------------------------------
-removeSuperfluous <- function(data, npixels) {
+# This function removes the superfluous features from the given data
+removeSuperfluous <- function(data, nfeatures) {
   indices <- c()
-  for(i in 1:npixels) {
+  for(i in 1:nfeatures) {
     superfluous <- TRUE
     for(j in 1:nrow(data)) {
-      if(data[j, i] > 0) superfluous <- FALSE
+      if(data[j, i] != data[1,i]) superfluous <- FALSE
+      if(!superfluous) break
     }
     if(! superfluous) {
       indices <- append(indices, i)
@@ -179,37 +182,64 @@ removeSuperfluous <- function(data, npixels) {
 }
 
 
-reducedImages <- removeSuperfluous(reducedImages, 196)
-
 # Classify ---------------------------------------------------------------------
 # Here we can analyse all our features. First load the features that you want to test as a data.frame, then pass that to the test function.
 
-test <- function(features, trainSize = 0.2, folds = 5, k = 5) {
+test <- function(features, trainSize = 0.2, folds = 5, k = 1:10, cost = 3:9, kernel = "radial") {
+  print(paste("train size:", trainSize * nrow(features), "samples"))
+  print(paste("test size:", nrow(features) - (trainSize * nrow(features)), "samples"))
+  print(paste("Cross-validation folds:", folds))
+  print(paste("SVM kernel:", kernel))
   # Prepare data
   set.seed(123)
   training.samples <- features$label %>% createDataPartition(p = trainSize, list = FALSE)
   train.data <- features[training.samples,]
   test.data <- features[-training.samples,]
-  train.x <- model.matrix(label~., train.data)[,-1]
+  train.x <- model.matrix(label~., train.data)
   train.y <- train.data$label
-  test.x <- model.matrix(label ~., test.data)[,-1]
+  test.x <- model.matrix(label ~., test.data)
   test.y <- test.data$label
   print("Prepared  the data")
   
-  # Train multinomial logit model
+  # Multinomial logit
+  print("Multinom logit model")
+  start.time <- Sys.time()
   cv.fit <- getLambda(train.x, train.y, k = folds)
   multinom.model <- glmnet(train.x, train.y, alpha = 1, family="multinomial")
-  # Test the model
+  end.time <- Sys.time()
+  print(paste("Trained in", end.time - start.time, "seconds"))
+  start.time <- Sys.time()
   multinom.pred <- predict(multinom.model, test.x, s=cv.fit$lambda.min, type = "class")
-  print("trained multinom model")
+  end.time <- Sys.time()
+  print(paste("Predicted in", end.time - start.time, "seconds"))
   
-  # Predict using knn
-  knn.pred <- knn(train.x, test.x, train.y, k = k)
+  # Knn
+  print("Knn")
+  knn.tune <- tune.knn(train.x, train.y, k = k)
+  print(paste("Best k:", knn.tune$best.parameters[1,1]))
+  start.time <- Sys.time()
+  knn.pred <- knn(train.x, test.x, train.y, k = knn.tune$best.parameters[1,1])
+  end.time <- Sys.time()
+  print(paste("Predicted in", end.time - start.time, "seconds"))
   
-  # print accuracies
+  # SVM
+  print("SVM")
+  svm.tune <- tune.svm(train.x[,-1], train.y, cost = cost, kernel = kernel)
+  print(paste("Best cost:", svm.tune$best.parameters[1,1]))
+  start.time <- Sys.time()
+  svm.model <- svm(train.x[,-1], train.y, cost = svm.tune$best.parameters[1,1], kernel = kernel)
+  end.time <- Sys.time()
+  print(paste("Trained in", end.time - start.time, "seconds"))
+  start.time <- Sys.time()
+  svm.pred <- predict(svm.model, test.x[,-1])
+  end.time <- Sys.time()
+  print(paste("Predicted in", end.time - start.time, "seconds"))
+  
+  # Print accuracies
   print("Accuracy per model:")
-  print(paste("multinom:", mean(multinom.pred == test.y)))
-  print(paste("knn:", mean(knn.pred == test.y)))
+  print(paste("Multinom:", mean(multinom.pred == test.y)))
+  print(paste("Knn:", mean(knn.pred == test.y)))
+  print(paste("SVM:", sum(diag(table(test.y,svm.pred)))/nrow(test.data)))
 }
 
 getLambda <- function(x, y, alpha = 1, k = 5) {
@@ -217,27 +247,15 @@ getLambda <- function(x, y, alpha = 1, k = 5) {
 }
 
 
-allFeatures <- data.frame("label"=y, "ink"=scale(ink), "width"=scale(width), "height"=scale(height), "numCols"=scale(numCols), "numRows"= scale(numRows))
-features <- data.frame("label"=y, "ink"=scale(ink), "width"=scale(width))
-features <- data.frame("label"=y, reducedImages)
+feature.pixels <- scale(removeSuperfluous(x, 784))
+feature.reducedPixels <- scale(removeSuperfluous(reducedImages, 28))
+feature.width <- scale(removeSuperfluous(width,28))
+feature.height <- scale(removeSuperfluous(height, 28))
+feature.numCols <- scale(numCols)
+feature.numRows <- scale(numRows)
+feature.ink <- scale(ink)
 
-features <- data.frame("label"=y, width, height)
-
-test(features, trainSize = 0.1, k = 3)
-
-
-
-# 1. What data pre-processing (including feature extraction/feature selection) did you perform for this classification algorithm? New 
-#    features that you derive from the raw pixel data must be described unambiguously in the report. The reader should be able to 
-#    reproduce your analysis. 
-# First describe the extracted features (these are ink, averageRowInk, rowsWithInk, averageColInk, colsWithInk) TODO: add more features
-# For every classification algorithm the data is split into train set and a test set. The trainset is a list of randomly selected samples 
-# from the data. The size is equal to 10% of the total datapoints (this is 4200). 
-# - Multinomial logit: a lambda value for the regularization has to be calculated. 
-# - Knn: 
-# - SVM: 
-
-# 2. What are the complexity parameters (if any) of the classification algorithm, and how did you select their values?
-# 3. What is the estimated accuracy of the best classifier for this method? 
+features <- data.frame("label"=y, feature.width, feature.height)
+test(features, trainSize = 0.2)
 
 
